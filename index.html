@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#6d36d7">
+  <meta name="description" content="Juntos — finanças, agenda e tarefas da sua casa em um só lugar.">
+  <meta name="referrer" content="strict-origin-when-cross-origin">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self'; img-src 'self' data: blob:; connect-src 'self' https://lripnivxtxcurnmuaabr.supabase.co wss://lripnivxtxcurnmuaabr.supabase.co; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests">
+  <title>Juntos — nossa vida em ordem</title>
+  <link rel="manifest" href="./manifest.webmanifest">
+  <link rel="icon" href="./icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <main id="public-shell" class="public-shell">
+    <nav class="public-nav" aria-label="Navegação principal">
+      <a class="brand" href="#inicio" aria-label="Juntos, início">
+        <span class="brand-mark" aria-hidden="true">J<span>♥</span></span>
+        <span>Juntos</span>
+      </a>
+      <div class="public-links">
+        <a href="#recursos">Recursos</a>
+        <a href="#seguranca">Segurança</a>
+        <button class="btn btn-ghost" data-open-auth="login">Entrar</button>
+      </div>
+    </nav>
+
+    <section id="inicio" class="hero">
+      <div class="hero-copy">
+        <span class="eyebrow">A vida da casa, organizada a dois</span>
+        <h1>Dinheiro, compromissos e tarefas. Tudo <em>Juntos.</em></h1>
+        <p>Organize as finanças da casa sem perder a individualidade. Cada pessoa tem seu login, seus registros pessoais e uma visão compartilhada do casal.</p>
+        <div class="hero-actions">
+          <button class="btn btn-primary" data-open-auth="signup">Criar minha conta</button>
+          <button class="btn btn-secondary" data-open-auth="login">Já tenho uma conta</button>
+        </div>
+        <div class="trust-row">
+          <span>✓ Acesso protegido</span><span>✓ Dados separados por casa</span><span>✓ Celular e computador</span>
+        </div>
+      </div>
+      <div class="hero-visual" aria-label="Prévia do painel do Juntos">
+        <div class="phone-frame">
+          <div class="phone-top"><span>Juntos</span><span class="avatar-mini">L</span></div>
+          <div class="mock-greeting">Boa tarde, Luan 👋</div>
+          <div class="mock-balance"><small>Saldo disponível</small><strong>R$ 5.842,70</strong><span>+ R$ 480 neste mês</span></div>
+          <div class="mock-grid"><div><small>Entradas</small><b>R$ 7.120</b></div><div><small>Saídas</small><b>R$ 2.277</b></div></div>
+          <div class="mock-title"><b>Próximos dias</b><span>Ver tudo</span></div>
+          <div class="mock-item"><i class="dot purple"></i><span><b>Conta de energia</b><small>Vence amanhã</small></span><strong>R$ 184</strong></div>
+          <div class="mock-item"><i class="dot coral"></i><span><b>Consulta</b><small>Quinta, 14:30</small></span><strong>→</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="recursos" class="features section">
+      <div class="section-heading"><span class="eyebrow">Feito para a vida real</span><h2>Um lugar para tudo o que vocês constroem</h2></div>
+      <div class="feature-grid">
+        <article><span class="feature-icon">◒</span><h3>Finanças claras</h3><p>Contas, cartões, despesas fixas, orçamento e metas com visão pessoal ou do casal.</p></article>
+        <article><span class="feature-icon">□</span><h3>Agenda compartilhada</h3><p>Compromissos importantes e lembretes organizados em um calendário comum.</p></article>
+        <article><span class="feature-icon">✓</span><h3>Tarefas divididas</h3><p>Responsáveis, prioridades e prazos para a rotina ficar leve e transparente.</p></article>
+      </div>
+    </section>
+
+    <section id="seguranca" class="security-band section">
+      <div><span class="eyebrow light">Privacidade desde a base</span><h2>O que é pessoal continua pessoal.</h2><p>O Juntos aplica autenticação e regras de acesso diretamente no banco. Registros pessoais pertencem somente ao dono; informações compartilhadas ficam disponíveis apenas aos membros autorizados da casa.</p></div>
+      <ul><li>Autenticação segura pelo Supabase</li><li>Políticas RLS em todas as tabelas</li><li>Nenhuma chave administrativa no site</li><li>Conexão protegida por HTTPS</li></ul>
+    </section>
+
+    <footer class="public-footer"><span>© 2026 Juntos</span><a href="./privacidade.html">Política de Privacidade</a><button class="link-button" data-open-auth="login">Acessar conta</button></footer>
+  </main>
+
+  <div id="auth-modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-modal></div>
+    <section class="auth-card" role="dialog" aria-modal="true" aria-labelledby="auth-title">
+      <button class="modal-close" data-close-modal aria-label="Fechar">×</button>
+      <div class="auth-brand"><span class="brand-mark">J<span>♥</span></span><b>Juntos</b></div>
+      <h2 id="auth-title">Que bom ter você aqui</h2>
+      <p id="auth-subtitle">Entre para acessar sua casa.</p>
+      <div class="auth-tabs" role="tablist"><button class="active" data-auth-tab="login">Entrar</button><button data-auth-tab="signup">Criar conta</button></div>
+      <form id="login-form" class="form-stack" autocomplete="on">
+        <label>E-mail<input id="login-email" name="email" type="email" autocomplete="email" required maxlength="254"></label>
+        <label>Senha<input id="login-password" name="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label>
+        <button class="link-button align-right" type="button" id="forgot-password">Esqueci minha senha</button>
+        <button class="btn btn-primary full" type="submit">Entrar com segurança</button>
+      </form>
+      <form id="signup-form" class="form-stack" autocomplete="on" hidden>
+        <label>Como podemos chamar você?<input id="signup-name" name="name" type="text" autocomplete="name" required minlength="2" maxlength="60"></label>
+        <label>E-mail<input id="signup-email" name="email" type="email" autocomplete="email" required maxlength="254"></label>
+        <label>Senha<input id="signup-password" name="new-password" type="password" autocomplete="new-password" required minlength="10" maxlength="128" aria-describedby="password-help"></label>
+        <small id="password-help">Use pelo menos 10 caracteres, misturando letras, número e símbolo.</small>
+        <label class="check"><input id="terms-check" type="checkbox" required><span>Li e aceito a <a href="./privacidade.html" target="_blank" rel="noopener">Política de Privacidade</a>.</span></label>
+        <button class="btn btn-primary full" type="submit">Criar conta</button>
+      </form>
+      <form id="reset-form" class="form-stack" hidden>
+        <label>Nova senha<input id="reset-password" type="password" autocomplete="new-password" required minlength="10" maxlength="128"></label>
+        <button class="btn btn-primary full" type="submit">Atualizar senha</button>
+      </form>
+      <p id="auth-message" class="form-message" aria-live="polite"></p>
+    </section>
+  </div>
+
+  <div id="app-shell" class="app-shell" hidden>
+    <aside class="sidebar">
+      <a class="brand brand-app" href="#home"><span class="brand-mark">J<span>♥</span></span><span>Juntos</span></a>
+      <nav class="app-nav" aria-label="Área do Juntos">
+        <button class="active" data-view="home"><span>⌂</span>Início</button>
+        <button data-view="financas"><span>◒</span>Finanças</button>
+        <button data-view="agenda"><span>□</span>Agenda</button>
+        <button data-view="tarefas"><span>✓</span>Tarefas</button>
+        <button data-view="metas"><span>◇</span>Metas</button>
+        <button data-view="perfil"><span>○</span>Perfil e casa</button>
+      </nav>
+      <div class="sidebar-security"><span>●</span><div><b>Conexão protegida</b><small>Seus dados respeitam as permissões da casa.</small></div></div>
+      <button id="logout-button" class="logout-button">Sair da conta</button>
+    </aside>
+
+    <div class="app-main">
+      <header class="app-header">
+        <button id="mobile-menu" class="icon-button mobile-only" aria-label="Abrir menu">☰</button>
+        <div><small id="today-label"></small><h1 id="view-title">Início</h1></div>
+        <div class="header-actions">
+          <div class="scope-switch" aria-label="Visão atual"><button data-scope="personal">Pessoal</button><button class="active" data-scope="shared">Casal</button></div>
+          <button id="quick-add" class="btn btn-primary">＋ Adicionar</button>
+          <button id="user-button" class="user-chip"><span id="user-initial">J</span><b id="user-name">Usuário</b></button>
+        </div>
+      </header>
+      <section id="app-content" class="app-content" aria-live="polite"></section>
+      <nav class="bottom-nav mobile-only" aria-label="Navegação móvel">
+        <button class="active" data-view="home"><span>⌂</span>Início</button><button data-view="financas"><span>◒</span>Finanças</button><button data-view="agenda"><span>□</span>Agenda</button><button data-view="tarefas"><span>✓</span>Tarefas</button><button data-view="perfil"><span>○</span>Perfil</button>
+      </nav>
+    </div>
+  </div>
+
+  <div id="form-modal" class="modal" hidden>
+    <div class="modal-backdrop" data-close-form></div>
+    <section class="form-card" role="dialog" aria-modal="true" aria-labelledby="form-title">
+      <button class="modal-close" data-close-form aria-label="Fechar">×</button>
+      <div id="dynamic-form"></div>
+    </section>
+  </div>
+
+  <noscript>O Juntos precisa do JavaScript ativado para funcionar.</noscript>
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>

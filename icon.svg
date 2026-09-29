@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Juntos">
+  <defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop stop-color="#8b5cf6"/><stop offset="1" stop-color="#5b21b6"/></linearGradient></defs>
+  <rect width="512" height="512" rx="120" fill="url(#g)"/>
+  <path d="M194 116h80v190c0 78-45 112-112 92-27-8-47-25-61-50l62-37c9 16 19 23 31 23 19 0 27-11 27-38V169h-27z" fill="#fff"/>
+  <path d="M336 177c-28-35-90-5-76 41 9 31 76 76 76 76s67-45 76-76c14-46-48-76-76-41z" fill="#fda4af"/>
+</svg>

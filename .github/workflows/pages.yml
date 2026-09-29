@@ -1,0 +1,40 @@
+name: Publicar Juntos no GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar código
+        uses: actions/checkout@v4
+      - name: Configurar Pages
+        uses: actions/configure-pages@v5
+      - name: Preparar arquivos
+        run: |
+          mkdir -p _site/js
+          cp index.html 404.html privacidade.html styles.css icon.svg manifest.webmanifest sw.js _site/
+          cp js/app.js js/config.js _site/js/
+          touch _site/.nojekyll
+      - name: Empacotar site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Publicar
+        id: deployment
+        uses: actions/deploy-pages@v4

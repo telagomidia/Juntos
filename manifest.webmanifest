@@ -1,0 +1,11 @@
+{
+  "name": "Juntos — Finanças da Casa",
+  "short_name": "Juntos",
+  "description": "Finanças, agenda e tarefas da casa em um só lugar.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f5fb",
+  "theme_color": "#6d36d7",
+  "icons": [{"src":"./icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]
+}
