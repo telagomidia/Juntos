@@ -13,6 +13,13 @@ const money = value => new Intl.NumberFormat('pt-BR', { style:'currency', curren
 const shortDate = value => value ? new Intl.DateTimeFormat('pt-BR').format(new Date(`${value}T12:00:00`)) : 'Sem data';
 const dateTime = value => value ? new Intl.DateTimeFormat('pt-BR', { dateStyle:'short', timeStyle:'short' }).format(new Date(value)) : 'Sem data';
 const todayISO = () => new Date().toISOString().slice(0, 10);
+const brDate = value => value ? value.split('-').reverse().join('/') : '';
+const isoDate = value => {
+  if (!value) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  const match=String(value).match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  return match ? `${match[3]}-${match[2]}-${match[1]}` : '';
+};
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const state = {
@@ -120,25 +127,19 @@ async function refreshData() {
   if (!state.household) return;
   $('#app-content').innerHTML = loading();
   const hid = state.household.id;
-  const queries = [
-    ['accounts', supabase.from('accounts').select('*').eq('household_id', hid).eq('is_active', true).order('created_at')],
-    ['cards', supabase.from('credit_cards').select('*').eq('household_id', hid).eq('is_active', true).order('created_at')],
-    ['transactions', supabase.from('transactions').select('*,categories(name,icon),accounts(name),credit_cards(name)').eq('household_id', hid).order('transaction_date', { ascending:false }).limit(300)],
-    ['categories', supabase.from('categories').select('*').eq('household_id', hid).eq('is_active', true).order('name')],
-    ['tasks', supabase.from('tasks').select('*').eq('household_id', hid).order('created_at', { ascending:false }).limit(200)],
-    ['goals', supabase.from('goals').select('*').eq('household_id', hid).order('created_at', { ascending:false })],
-    ['events', supabase.from('calendar_events').select('*').eq('household_id', hid).order('starts_at').limit(300)],
-    ['budgets', supabase.from('budgets').select('*,categories(name)').eq('household_id', hid).order('month', { ascending:false })],
-    ['recurring', supabase.from('recurring_items').select('*,categories(name)').eq('household_id', hid).eq('active', true).order('next_date')],
-    ['members', supabase.from('household_members').select('user_id,role,joined_at').eq('household_id', hid)]
-  ];
-  const results = await Promise.all(queries.map(async ([key, query]) => [key, await query]));
-  for (const [key, result] of results) {
-    if (result.error) {
-      if (key === 'events' && /calendar_events/i.test(result.error.message)) state.data[key] = [];
-      else throw result.error;
-    } else state.data[key] = result.data || [];
+  const [{data:records,error:syncError},{data:members,error:memberError}] = await Promise.all([
+    supabase.from('juntos_sync_records').select('record_id,table_name,payload,deleted,updated_at,updated_by').eq('household_id',hid).eq('deleted',false).order('updated_at',{ascending:false}).limit(10000),
+    supabase.from('household_members').select('user_id,role,joined_at').eq('household_id',hid)
+  ]);
+  if(syncError)throw syncError;
+  if(memberError)throw memberError;
+  state.data={accounts:[],cards:[],transactions:[],categories:[],tasks:[],goals:[],events:[],budgets:[],recurring:[],members:members||[],profiles:[]};
+  for(const row of records||[]){
+    const mapped=syncRecord(row);
+    if(mapped)state.data[mapped.collection].push(mapped.item);
   }
+  state.data.transactions.sort((a,b)=>String(b.transaction_date).localeCompare(String(a.transaction_date)));
+  state.data.events.sort((a,b)=>String(a.starts_at).localeCompare(String(b.starts_at)));
   const ids = state.data.members.map(item => item.user_id);
   if (ids.length) {
     const { data, error } = await supabase.from('profiles').select('id,display_name,avatar_url').in('id', ids);
@@ -148,6 +149,25 @@ async function refreshData() {
   renderCurrentView();
 }
 
+function syncRecord(row){
+  const p=row.payload||{};const id=row.record_id;const common={id,created_by:p.owner_uid||row.updated_by,owner_user_id:p.owner_uid||row.updated_by,scope:p.scope||'personal',_payload:p,_syncTable:row.table_name,updated_at:row.updated_at};
+  if(row.table_name==='categories')return{collection:'categories',item:{...common,name:p.name||'Outros',kind:String(p.kind||'Despesa').toLowerCase().startsWith('rece')?'income':'expense',is_active:Number(p.active??1)===1}};
+  if(row.table_name==='accounts')return{collection:'accounts',item:{...common,name:p.name||'Conta',type:normalizeAccountType(p.type),initial_balance:Number(p.balance||0),balance:Number(p.balance||0),is_active:Number(p.active??1)===1}};
+  if(row.table_name==='cards')return{collection:'cards',item:{...common,name:p.name||'Cartão',credit_limit:Number(p.credit_limit||0),closing_day:Number(p.closing_day||1),due_day:Number(p.due_day||1),last_four:p.last_four||'',is_active:Number(p.active??1)===1}};
+  if(row.table_name==='transactions')return{collection:'transactions',item:{...common,description:p.description||'Movimentação',amount:Number(p.amount||0),type:normalizeTransactionType(p.type),transaction_date:isoDate(p.date||p.due_date),categories:{name:p.category||'Sem categoria'},accounts:{name:p.account||''},credit_cards:{name:p.card||''},account_name:p.account||'',card_name:p.card||'',notes:p.notes||''}};
+  if(row.table_name==='tasks')return{collection:'tasks',item:{...common,title:p.title||'Tarefa',description:p.description||'',assigned_to:memberIdByName(p.responsible),responsible_name:p.responsible||'',due_date:isoDate(p.due),priority:normalizePriority(p.priority),status:String(p.status||'Pendente').toLowerCase().startsWith('concl')?'done':'todo',recurrence:p.recurrence||null,completed_at:p.completed_at||null}};
+  if(row.table_name==='events'){const day=isoDate(p.date);const time=/^\d{2}:\d{2}/.test(p.time||'')?p.time.slice(0,5):'00:00';return{collection:'events',item:{...common,title:p.title||'Compromisso',starts_at:day?`${day}T${time}:00`:row.updated_at,ends_at:null,location:p.location||'',description:p.notes||'',responsible_user_id:memberIdByName(p.responsible)}};}
+  if(row.table_name==='budgets')return{collection:'budgets',item:{...common,amount:Number(p.amount||0),month:/^\d{4}-\d{2}$/.test(p.month||'')?`${p.month}-01`:isoDate(p.month),categories:{name:p.category||'Categoria'}}};
+  if(row.table_name==='goals')return{collection:'goals',item:{...common,name:p.name||'Meta',target_amount:Number(p.target||0),current_amount:Number(p.current||0),target_date:isoDate(p.target_date),completed:Number(p.done||0)===1}};
+  if(row.table_name==='recurring_expenses')return{collection:'recurring',item:{...common,type:'expense',description:p.description||'Despesa fixa',amount:Number(p.amount||0),next_date:isoDate(p.start_date),frequency:normalizeFrequency(p.frequency),categories:{name:p.category||'Outros'},account_name:p.account||'',active:Number(p.active??1)===1}};
+  return null;
+}
+function normalizeTransactionType(value){const v=String(value||'').toLowerCase();return v.startsWith('rece')?'income':v.startsWith('trans')?'transfer':'expense';}
+function normalizePriority(value){const v=String(value||'').toLowerCase();return v.startsWith('alt')?'high':v.startsWith('baix')?'low':'medium';}
+function normalizeFrequency(value){const v=String(value||'').toLowerCase();return v.startsWith('seman')?'weekly':v.startsWith('quinz')?'biweekly':v.startsWith('anual')?'yearly':'monthly';}
+function normalizeAccountType(value){const v=String(value||'').toLowerCase();return v.includes('poup')?'savings':v.includes('dinheiro')?'cash':v.includes('invest')?'investment':v.includes('corrent')?'checking':'other';}
+function memberIdByName(name){const target=String(name||'').trim().toLowerCase();if(!target)return null;return state.data?.profiles?.find(p=>String(p.display_name||'').toLowerCase()===target)?.id||null;}
+
 function scoped(items, ownerField = 'created_by') {
   if (state.scope === 'shared') return items.filter(item => !('scope' in item) || item.scope === 'shared');
   return items.filter(item => !('scope' in item) ? item[ownerField] === state.session.user.id : item.scope === 'personal' && (item[ownerField] || item.owner_user_id) === state.session.user.id);
@@ -155,10 +175,10 @@ function scoped(items, ownerField = 'created_by') {
 
 function calculateAccountBalance(account) {
   return state.data.transactions.reduce((total, tx) => {
-    if (tx.account_id === account.id) total += tx.type === 'income' ? Number(tx.amount) : tx.type === 'expense' ? -Number(tx.amount) : -Number(tx.amount);
+    if (tx.account_id === account.id || (tx.account_name&&tx.account_name===account.name)) total += tx.type === 'income' ? Number(tx.amount) : tx.type === 'expense' ? -Number(tx.amount) : -Number(tx.amount);
     if (tx.type === 'transfer' && tx.destination_account_id === account.id) total += Number(tx.amount);
     return total;
-  }, Number(account.initial_balance || 0));
+  }, Number(account.initial_balance ?? account.balance ?? 0));
 }
 
 function renderCurrentView() {
@@ -197,7 +217,7 @@ function transactionRow(tx) {
   const sign = tx.type === 'income' ? '+' : tx.type === 'expense' ? '−' : '↔';
   return `<div class="list-row"><span class="list-icon">${sign}</span><div class="list-main"><b>${esc(tx.description)}</b><small>${shortDate(tx.transaction_date)} · ${esc(tx.categories?.name || tx.accounts?.name || 'Sem categoria')}</small></div><span class="amount ${type}">${tx.type === 'expense' ? '−' : tx.type === 'income' ? '+' : ''}${money(tx.amount)}</span><button class="icon-button" data-delete="transactions" data-id="${esc(tx.id)}" aria-label="Excluir">×</button></div>`;
 }
-function taskRow(task) { return `<div class="list-row"><button class="task-check ${task.status === 'done' ? 'done':''}" data-complete-task="${esc(task.id)}">${task.status === 'done' ? '✓':''}</button><div class="list-main"><b>${esc(task.title)}</b><small>${shortDate(task.due_date)} · ${esc(memberName(task.assigned_to) || 'Sem responsável')}</small></div><span class="badge ${esc(task.priority)}">${task.priority === 'high'?'Alta':task.priority === 'low'?'Baixa':'Média'}</span></div>`; }
+function taskRow(task) { return `<div class="list-row"><button class="task-check ${task.status === 'done' ? 'done':''}" data-complete-task="${esc(task.id)}">${task.status === 'done' ? '✓':''}</button><div class="list-main"><b>${esc(task.title)}</b><small>${shortDate(task.due_date)} · ${esc(memberName(task.assigned_to) || task.responsible_name || 'Sem responsável')}</small></div><span class="badge ${esc(task.priority)}">${task.priority === 'high'?'Alta':task.priority === 'low'?'Baixa':'Média'}</span></div>`; }
 function eventRow(event) { return `<div class="list-row"><span class="list-icon">□</span><div class="list-main"><b>${esc(event.title)}</b><small>${dateTime(event.starts_at)}${event.location ? ` · ${esc(event.location)}`:''}</small></div><button class="icon-button" data-delete="calendar_events" data-id="${esc(event.id)}" aria-label="Excluir">×</button></div>`; }
 function goalProgress(goal) { const pct=Math.min(100,Math.round((Number(goal.current_amount||0)/Number(goal.target_amount||1))*100));return `<div class="goal-mini"><div class="card-head"><span><b>${esc(goal.name)}</b><small> · ${money(goal.current_amount)} de ${money(goal.target_amount)}</small></span><b>${pct}%</b></div><progress class="progress-bar" max="100" value="${pct}">${pct}%</progress></div>`; }
 function memberName(id){return state.data.profiles.find(p=>p.id===id)?.display_name||'';}
@@ -255,10 +275,10 @@ function renderOnboarding() {
 
 function openForm(type, context = {}) {
   const title = {transaction:'Nova movimentação',account:'Nova conta',card:'Novo cartão',task:'Nova tarefa',goal:'Nova meta',event:'Novo compromisso',budget:'Novo orçamento',recurring:'Nova recorrência',contribution:'Adicionar à meta',profile:'Editar perfil'}[type] || 'Adicionar';
-  const categoryOptions = (kind='expense') => state.data.categories.filter(c=>c.kind===kind).map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
-  const accounts = scoped(state.data.accounts,'owner_user_id').map(a=>`<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('');
-  const cards = scoped(state.data.cards,'owner_user_id').map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
-  const members = state.data.members.map(m=>`<option value="${esc(m.user_id)}">${esc(memberName(m.user_id)||'Membro')}</option>`).join('');
+  const categoryOptions = (kind='expense') => state.data.categories.filter(c=>c.kind===kind).map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  const accounts = scoped(state.data.accounts,'owner_user_id').map(a=>`<option value="${esc(a.name)}">${esc(a.name)}</option>`).join('');
+  const cards = scoped(state.data.cards,'owner_user_id').map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('');
+  const members = state.data.members.map(m=>`<option value="${esc(memberName(m.user_id)||'Membro')}">${esc(memberName(m.user_id)||'Membro')}</option>`).join('');
   const scopeField = `<label>Visibilidade<select name="scope"><option value="shared" ${state.scope==='shared'?'selected':''}>Casal</option><option value="personal" ${state.scope==='personal'?'selected':''}>Somente eu</option></select></label>`;
   let fields='';
   if(type==='transaction') fields=`<label>Tipo<select name="type" id="transaction-type"><option value="expense">Despesa</option><option value="income">Receita</option><option value="transfer">Transferência</option></select></label>${scopeField}<label class="full-row">Descrição<input name="description" required maxlength="100" placeholder="Ex.: Mercado"></label><label>Valor<input name="amount" type="number" min="0.01" step="0.01" required inputmode="decimal"></label><label>Data<input name="transaction_date" type="date" required value="${todayISO()}"></label><label>Categoria<select name="category_id" id="transaction-category"><option value="">Sem categoria</option>${categoryOptions()}</select></label><label>Conta<select name="account_id"><option value="">Selecione</option>${accounts}</select></label><label>Cartão<select name="credit_card_id"><option value="">Não usar cartão</option>${cards}</select></label><label class="full-row">Observação<textarea name="notes" maxlength="300" rows="2"></textarea></label>`;
@@ -281,19 +301,19 @@ async function submitEntity(form) {
   try {
     const type=form.dataset.entity;const raw=Object.fromEntries(new FormData(form));
     Object.keys(raw).forEach(key=>{if(raw[key]==='')raw[key]=null});
-    const base={household_id:state.household.id};let table,payload;
-    if(type==='transaction'){table='transactions';payload={...base,...pick(raw,['type','scope','description','amount','transaction_date','category_id','account_id','credit_card_id','notes']),created_by:state.session.user.id};}
-    if(type==='account'){table='accounts';payload={...base,...pick(raw,['name','type','scope','initial_balance']),owner_user_id:state.session.user.id};}
-    if(type==='card'){table='credit_cards';payload={...base,...pick(raw,['name','last_four','credit_limit','closing_day','due_day','scope']),owner_user_id:state.session.user.id};}
-    if(type==='task'){table='tasks';payload={...base,...pick(raw,['title','scope','assigned_to','due_date','priority','recurrence','description']),created_by:state.session.user.id};}
-    if(type==='goal'){table='goals';payload={...base,...pick(raw,['name','scope','target_amount','current_amount','target_date']),created_by:state.session.user.id};}
-    if(type==='event'){table='calendar_events';payload={...base,...pick(raw,['title','scope','responsible_user_id','starts_at','ends_at','location','description']),created_by:state.session.user.id};payload.starts_at=new Date(payload.starts_at).toISOString();if(payload.ends_at)payload.ends_at=new Date(payload.ends_at).toISOString();}
-    if(type==='budget'){table='budgets';payload={...base,...pick(raw,['category_id','scope','amount']),month:`${raw.month}-01`,created_by:state.session.user.id};}
-    if(type==='recurring'){table='recurring_items';payload={...base,...pick(raw,['type','scope','description','amount','next_date','frequency','category_id','account_id','credit_card_id']),created_by:state.session.user.id,interval_value:1};}
-    if(type==='contribution'){const goal=state.data.goals.find(g=>g.id===raw.goal_id);if(!goal)throw new Error('Meta não encontrada');const {error}=await supabase.from('goals').update({current_amount:Number(goal.current_amount||0)+Number(raw.amount)}).eq('id',goal.id);if(error)throw error;hideForm();toast('Valor adicionado à meta.');await refreshData();return;}
+    let table,payload;const owner_uid=state.session.user.id;const scope=raw.scope||state.scope;
+    if(type==='transaction'){table='transactions';payload={type:raw.type==='income'?'Receita':raw.type==='transfer'?'Transferência':'Despesa',description:raw.description,amount:Number(raw.amount),category:raw.category_id||'',account:raw.account_id||'',card:raw.credit_card_id||'',date:brDate(raw.transaction_date),variable:0,recurring:0,installments:1,notes:raw.notes||'',payment_status:'paid',due_date:brDate(raw.transaction_date),paid_date:brDate(raw.transaction_date),paid_amount:Number(raw.amount),recurring_key:'',recurring_period:'',owner_uid,scope};}
+    if(type==='account'){table='accounts';payload={name:raw.name,type:accountType(raw.type),balance:Number(raw.initial_balance||0),active:1,owner_uid,scope};}
+    if(type==='card'){table='cards';payload={name:raw.name,last_four:raw.last_four||'',credit_limit:Number(raw.credit_limit||0),closing_day:Number(raw.closing_day),due_day:Number(raw.due_day),active:1,owner_uid,scope};}
+    if(type==='task'){table='tasks';payload={title:raw.title,responsible:raw.assigned_to||'',due:brDate(raw.due_date),time:'',priority:raw.priority==='high'?'alta':raw.priority==='low'?'baixa':'media',recurrence:raw.recurrence||'',status:'Pendente',completed_at:'',description:raw.description||'',owner_uid,scope};}
+    if(type==='goal'){table='goals';payload={name:raw.name,target:Number(raw.target_amount),current:Number(raw.current_amount||0),target_date:brDate(raw.target_date),done:0,owner_uid,scope};}
+    if(type==='event'){table='events';const start=new Date(raw.starts_at);payload={title:raw.title,date:brDate(localISO(start)),time:String(raw.starts_at).slice(11,16),location:raw.location||'',responsible:raw.responsible_user_id||'',recurrence:'',reminder:'',notes:raw.description||'',owner_uid,scope};}
+    if(type==='budget'){table='budgets';payload={category:raw.category_id||'',month:raw.month,amount:Number(raw.amount),owner_uid,scope};}
+    if(type==='recurring'){table='recurring_expenses';payload={description:raw.description,amount:Number(raw.amount),category:raw.category_id||'Outros',account:raw.account_id||'',due_day:Number(String(raw.next_date).slice(8,10)),frequency:frequency(raw.frequency),start_date:brDate(raw.next_date),last_paid_period:'',notes:'',active:1,owner_uid,scope};}
+    if(type==='contribution'){const goal=state.data.goals.find(g=>g.id===raw.goal_id);if(!goal)throw new Error('Meta não encontrada');const next={...goal._payload,current:Number(goal.current_amount||0)+Number(raw.amount)};await updateSyncRecord(goal,next);hideForm();toast('Valor adicionado à meta.');await refreshData();return;}
     if(type==='profile'){const {error}=await supabase.from('profiles').update({display_name:raw.display_name.trim()}).eq('id',state.session.user.id);if(error)throw error;state.profile.display_name=raw.display_name.trim();updateIdentity();hideForm();renderCurrentView();toast('Perfil atualizado.');return;}
     if(!table)throw new Error('Formulário inválido');
-    const {error}=await supabase.from(table).insert(payload);if(error)throw error;
+    const {error}=await supabase.from('juntos_sync_records').insert({household_id:state.household.id,record_id:crypto.randomUUID(),table_name:table,payload,deleted:false,updated_by:owner_uid});if(error)throw error;
     hideForm();toast('Salvo com segurança.');await refreshData();
   } catch(error){$('#entity-message').textContent=friendlyError(error);console.error(error);} finally {setBusy(button,false);}
 }
@@ -304,18 +324,20 @@ async function deleteEntity(table,id) {
   const labels={transactions:'esta movimentação',accounts:'esta conta',credit_cards:'este cartão',goals:'esta meta',budgets:'este orçamento',calendar_events:'este compromisso'};
   if(!confirm(`Deseja realmente remover ${labels[table]||'este registro'}?`))return;
   try {
-    let query;
-    if(table==='accounts'||table==='credit_cards') query=supabase.from(table).update({is_active:false}).eq('id',id);
-    else query=supabase.from(table).delete().eq('id',id);
-    const {error}=await query;if(error)throw error;toast('Registro removido.');await refreshData();
+    const syncTable=({credit_cards:'cards',calendar_events:'events',recurring_items:'recurring_expenses'})[table]||table;
+    const {error}=await supabase.from('juntos_sync_records').update({payload:{},deleted:true,updated_by:state.session.user.id}).eq('household_id',state.household.id).eq('table_name',syncTable).eq('record_id',id);if(error)throw error;toast('Registro removido.');await refreshData();
   } catch(error){toast(friendlyError(error),'error');}
 }
 
 async function completeTask(id) {
   const task=state.data.tasks.find(item=>item.id===id);if(!task)return;
   const done=task.status==='done';
-  const {error}=await supabase.from('tasks').update({status:done?'todo':'done',completed_at:done?null:new Date().toISOString()}).eq('id',id);
-  if(error){toast(friendlyError(error),'error');return;}await refreshData();
+  try{await updateSyncRecord(task,{...task._payload,status:done?'Pendente':'Concluída',completed_at:done?'':new Date().toISOString()});await refreshData();}catch(error){toast(friendlyError(error),'error');}
+}
+
+async function updateSyncRecord(item,payload){
+  const {error}=await supabase.from('juntos_sync_records').update({payload,deleted:false,updated_by:state.session.user.id}).eq('household_id',state.household.id).eq('table_name',item._syncTable).eq('record_id',item.id);
+  if(error)throw error;
 }
 
 async function createHousehold(name) {
@@ -366,7 +388,7 @@ $('#logout-button').addEventListener('click',async()=>{await supabase.auth.signO
 $('#quick-add').addEventListener('click',()=>openForm(state.view==='tarefas'?'task':state.view==='agenda'?'event':state.view==='metas'?'goal':'transaction'));
 $('#mobile-menu').addEventListener('click',()=>$('.sidebar').classList.toggle('open'));
 document.addEventListener('click',async event=>{if(event.target.id==='send-reset'){const {error}=await supabase.auth.resetPasswordForEmail(state.session.user.email,{redirectTo:SITE_URL});toast(error?friendlyError(error):'E-mail de redefinição enviado.',error?'error':'');}});
-document.addEventListener('change',event=>{if(event.target.id==='transaction-type'){const select=$('#transaction-category');const kind=event.target.value==='income'?'income':'expense';select.innerHTML=`<option value="">Sem categoria</option>${state.data.categories.filter(c=>c.kind===kind).map(c=>`<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}`;}});
+document.addEventListener('change',event=>{if(event.target.id==='transaction-type'){const select=$('#transaction-category');const kind=event.target.value==='income'?'income':'expense';select.innerHTML=`<option value="">Sem categoria</option>${state.data.categories.filter(c=>c.kind===kind).map(c=>`<option value="${esc(c.name)}">${esc(c.name)}</option>`).join('')}`;}});
 
 if('serviceWorker' in navigator) window.addEventListener('load',()=>navigator.serviceWorker.register('./sw.js').catch(()=>{}));
 authenticate();
