@@ -27,6 +27,7 @@ const state = {
   scope: 'shared', view: 'home', financeTab: 'transacoes', calendarDate: new Date(),
   data: { accounts:[], cards:[], transactions:[], categories:[], tasks:[], goals:[], events:[], budgets:[], recurring:[], members:[], profiles:[] }
 };
+const FINANCIAL_SYNC_TABLES = new Set(['accounts','cards','transactions','budgets','goals','recurring_expenses']);
 
 function toast(message, type = '') {
   const el = $('#toast');
@@ -169,9 +170,13 @@ function normalizeAccountType(value){const v=String(value||'').toLowerCase();ret
 function memberIdByName(name){const target=String(name||'').trim().toLowerCase();if(!target)return null;return state.data?.profiles?.find(p=>String(p.display_name||'').toLowerCase()===target)?.id||null;}
 
 function scoped(items, ownerField = 'created_by') {
-  if (state.scope === 'shared') return items.filter(item => !('scope' in item) || item.scope === 'shared');
+  if (state.scope === 'shared') return items.filter(item => FINANCIAL_SYNC_TABLES.has(item._syncTable) || !('scope' in item) || item.scope === 'shared');
   return items.filter(item => !('scope' in item) ? item[ownerField] === state.session.user.id : item.scope === 'personal' && (item[ownerField] || item.owner_user_id) === state.session.user.id);
 }
+
+function ownerName(item){return memberName(item.owner_user_id||item.created_by)||'Pessoal';}
+function scopeLabel(item){return item.scope==='shared'?'Casal':ownerName(item);}
+function canEdit(item){return item.scope==='shared'||(item.owner_user_id||item.created_by)===state.session.user.id;}
 
 function calculateAccountBalance(account) {
   return state.data.transactions.reduce((total, tx) => {
@@ -215,7 +220,7 @@ function renderHome() {
 function transactionRow(tx) {
   const type = tx.type === 'income' ? 'income' : 'expense';
   const sign = tx.type === 'income' ? '+' : tx.type === 'expense' ? '−' : '↔';
-  return `<div class="list-row"><span class="list-icon">${sign}</span><div class="list-main"><b>${esc(tx.description)}</b><small>${shortDate(tx.transaction_date)} · ${esc(tx.categories?.name || tx.accounts?.name || 'Sem categoria')}</small></div><span class="amount ${type}">${tx.type === 'expense' ? '−' : tx.type === 'income' ? '+' : ''}${money(tx.amount)}</span><button class="icon-button" data-delete="transactions" data-id="${esc(tx.id)}" aria-label="Excluir">×</button></div>`;
+  return `<div class="list-row"><span class="list-icon">${sign}</span><div class="list-main"><b>${esc(tx.description)}</b><small>${shortDate(tx.transaction_date)} · ${esc(tx.categories?.name || tx.accounts?.name || 'Sem categoria')} · ${esc(scopeLabel(tx))}</small></div><span class="amount ${type}">${tx.type === 'expense' ? '−' : tx.type === 'income' ? '+' : ''}${money(tx.amount)}</span>${canEdit(tx)?`<button class="icon-button" data-delete="transactions" data-id="${esc(tx.id)}" aria-label="Excluir">×</button>`:''}</div>`;
 }
 function taskRow(task) { return `<div class="list-row"><button class="task-check ${task.status === 'done' ? 'done':''}" data-complete-task="${esc(task.id)}">${task.status === 'done' ? '✓':''}</button><div class="list-main"><b>${esc(task.title)}</b><small>${shortDate(task.due_date)} · ${esc(memberName(task.assigned_to) || task.responsible_name || 'Sem responsável')}</small></div><span class="badge ${esc(task.priority)}">${task.priority === 'high'?'Alta':task.priority === 'low'?'Baixa':'Média'}</span></div>`; }
 function eventRow(event) { return `<div class="list-row"><span class="list-icon">□</span><div class="list-main"><b>${esc(event.title)}</b><small>${dateTime(event.starts_at)}${event.location ? ` · ${esc(event.location)}`:''}</small></div><button class="icon-button" data-delete="calendar_events" data-id="${esc(event.id)}" aria-label="Excluir">×</button></div>`; }
@@ -227,13 +232,13 @@ function renderFinance() {
   let content = '';
   if (state.financeTab === 'transacoes') {
     const txs = scoped(state.data.transactions);
-    content = txs.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Descrição</th><th>Data</th><th>Categoria</th><th>Escopo</th><th>Valor</th><th></th></tr></thead><tbody>${txs.map(tx=>`<tr><td><b>${esc(tx.description)}</b></td><td>${shortDate(tx.transaction_date)}</td><td>${esc(tx.categories?.name||'—')}</td><td><span class="badge">${tx.scope==='personal'?'Pessoal':'Casal'}</span></td><td class="amount ${tx.type==='income'?'income':'expense'}">${tx.type==='expense'?'−':'+'}${money(tx.amount)}</td><td><button class="icon-button" data-delete="transactions" data-id="${esc(tx.id)}">×</button></td></tr>`).join('')}</tbody></table></div>` : empty('Nenhuma movimentação','Registre uma receita ou despesa.');
+    content = txs.length ? `<div class="table-wrap"><table class="data-table"><thead><tr><th>Descrição</th><th>Data</th><th>Categoria</th><th>Responsável</th><th>Valor</th><th></th></tr></thead><tbody>${txs.map(tx=>`<tr><td><b>${esc(tx.description)}</b></td><td>${shortDate(tx.transaction_date)}</td><td>${esc(tx.categories?.name||'—')}</td><td><span class="badge">${esc(scopeLabel(tx))}</span></td><td class="amount ${tx.type==='income'?'income':'expense'}">${tx.type==='expense'?'−':'+'}${money(tx.amount)}</td><td>${canEdit(tx)?`<button class="icon-button" data-delete="transactions" data-id="${esc(tx.id)}">×</button>`:''}</td></tr>`).join('')}</tbody></table></div>` : empty('Nenhuma movimentação','Registre uma receita ou despesa.');
   } else if (state.financeTab === 'contas') {
-    const items=scoped(state.data.accounts,'owner_user_id'); content=items.length?`<div class="data-grid">${items.map(a=>`<article class="account-card"><span class="badge">${a.scope==='personal'?'Pessoal':'Casal'}</span><h3>${esc(a.name)}</h3><p>${accountType(a.type)}</p><strong>${money(calculateAccountBalance(a))}</strong><p><button class="link-button" data-delete="accounts" data-id="${esc(a.id)}">Arquivar conta</button></p></article>`).join('')}</div>`:empty('Nenhuma conta','Adicione sua conta corrente, carteira ou poupança.');
+    const items=scoped(state.data.accounts,'owner_user_id'); content=items.length?`<div class="data-grid">${items.map(a=>`<article class="account-card"><span class="badge">${esc(scopeLabel(a))}</span><h3>${esc(a.name)}</h3><p>${accountType(a.type)}</p><strong>${money(calculateAccountBalance(a))}</strong>${canEdit(a)?`<p><button class="link-button" data-delete="accounts" data-id="${esc(a.id)}">Arquivar conta</button></p>`:''}</article>`).join('')}</div>`:empty('Nenhuma conta sincronizada','Sincronize o aplicativo para trazer as contas e os saldos.');
   } else if (state.financeTab === 'cartoes') {
-    const items=scoped(state.data.cards,'owner_user_id'); content=items.length?`<div class="data-grid">${items.map(c=>`<article class="account-card"><span class="badge">Final ${esc(c.last_four||'••••')}</span><h3>${esc(c.name)}</h3><p>Fecha dia ${c.closing_day} · vence dia ${c.due_day}</p><strong>${money(c.credit_limit||0)}</strong><p>Limite cadastrado</p><button class="link-button" data-delete="credit_cards" data-id="${esc(c.id)}">Arquivar cartão</button></article>`).join('')}</div>`:empty('Nenhum cartão','Cadastre apenas nome, limite e datas — nunca o número completo.');
+    const items=scoped(state.data.cards,'owner_user_id'); content=items.length?`<div class="data-grid">${items.map(c=>`<article class="account-card"><span class="badge">${esc(scopeLabel(c))} · final ${esc(c.last_four||'••••')}</span><h3>${esc(c.name)}</h3><p>Fecha dia ${c.closing_day} · vence dia ${c.due_day}</p><strong>${money(c.credit_limit||0)}</strong><p>Limite cadastrado</p>${canEdit(c)?`<button class="link-button" data-delete="credit_cards" data-id="${esc(c.id)}">Arquivar cartão</button>`:''}</article>`).join('')}</div>`:empty('Nenhum cartão','Cadastre apenas nome, limite e datas — nunca o número completo.');
   } else if (state.financeTab === 'orcamento') {
-    const items=scoped(state.data.budgets); content=items.length?`<div class="data-grid">${items.map(b=>`<article class="account-card"><span class="badge">${shortDate(b.month)}</span><h3>${esc(b.categories?.name||'Categoria')}</h3><strong>${money(b.amount)}</strong><p>Limite do mês</p><button class="link-button" data-delete="budgets" data-id="${esc(b.id)}">Excluir</button></article>`).join('')}</div>`:empty('Sem orçamento definido','Defina limites mensais por categoria.');
+    const items=scoped(state.data.budgets); content=items.length?`<div class="data-grid">${items.map(b=>`<article class="account-card"><span class="badge">${shortDate(b.month)} · ${esc(scopeLabel(b))}</span><h3>${esc(b.categories?.name||'Categoria')}</h3><strong>${money(b.amount)}</strong><p>Limite do mês</p>${canEdit(b)?`<button class="link-button" data-delete="budgets" data-id="${esc(b.id)}">Excluir</button>`:''}</article>`).join('')}</div>`:empty('Sem orçamento definido','Defina limites mensais por categoria.');
   } else {
     const items=scoped(state.data.recurring); content=items.length?`<div class="table-wrap"><table class="data-table"><thead><tr><th>Descrição</th><th>Tipo</th><th>Próxima data</th><th>Frequência</th><th>Valor</th></tr></thead><tbody>${items.map(r=>`<tr><td><b>${esc(r.description)}</b></td><td>${r.type==='income'?'Receita':'Despesa'}</td><td>${shortDate(r.next_date)}</td><td>${frequency(r.frequency)}</td><td>${money(r.amount)}</td></tr>`).join('')}</tbody></table></div>`:empty('Nenhum item recorrente','As despesas fixas cadastradas aparecerão aqui.');
   }
@@ -250,7 +255,7 @@ function renderTasks() {
 
 function renderGoals() {
   const goals=scoped(state.data.goals);
-  return `<div class="page-heading"><div><h2>Metas que aproximam</h2><p>Transforme planos em pequenos avanços visíveis.</p></div><button class="btn btn-primary" data-action="open-form" data-form="goal">＋ Nova meta</button></div>${goals.length?`<div class="data-grid">${goals.map(g=>{const pct=Math.min(100,Math.round(Number(g.current_amount||0)/Number(g.target_amount||1)*100));return `<article class="goal-card"><div class="card-head"><span class="badge">${g.scope==='personal'?'Pessoal':'Casal'}</span><button data-delete="goals" data-id="${esc(g.id)}">×</button></div><h3>${esc(g.name)}</h3><p>${money(g.current_amount)} de ${money(g.target_amount)}</p><progress class="progress-bar" max="100" value="${pct}">${pct}%</progress><p><b>${pct}% concluído</b>${g.target_date?` · até ${shortDate(g.target_date)}`:''}</p><button class="btn btn-secondary" data-action="goal-contribution" data-id="${esc(g.id)}">Adicionar valor</button></article>`}).join('')}</div>`:empty('Nenhuma meta ainda','Crie um objetivo para a casa ou para você.')}`;
+  return `<div class="page-heading"><div><h2>Metas que aproximam</h2><p>Transforme planos em pequenos avanços visíveis.</p></div><button class="btn btn-primary" data-action="open-form" data-form="goal">＋ Nova meta</button></div>${goals.length?`<div class="data-grid">${goals.map(g=>{const pct=Math.min(100,Math.round(Number(g.current_amount||0)/Number(g.target_amount||1)*100));return `<article class="goal-card"><div class="card-head"><span class="badge">${esc(scopeLabel(g))}</span>${canEdit(g)?`<button data-delete="goals" data-id="${esc(g.id)}">×</button>`:''}</div><h3>${esc(g.name)}</h3><p>${money(g.current_amount)} de ${money(g.target_amount)}</p><progress class="progress-bar" max="100" value="${pct}">${pct}%</progress><p><b>${pct}% concluído</b>${g.target_date?` · até ${shortDate(g.target_date)}`:''}</p>${canEdit(g)?`<button class="btn btn-secondary" data-action="goal-contribution" data-id="${esc(g.id)}">Adicionar valor</button>`:''}</article>`}).join('')}</div>`:empty('Nenhuma meta ainda','Crie um objetivo para a casa ou para você.')}`;
 }
 
 function renderAgenda() {
